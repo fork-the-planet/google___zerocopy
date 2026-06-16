@@ -9,7 +9,7 @@ pub struct SetupArgs {
 }
 
 pub const CONFIG: exocrate::Config = exocrate::Config {
-    rel_dir_path: &[".anneal", "toolchain"],
+    rel_dir_path: &["anneal", "toolchain"],
     version_slug: env!("ANNEAL_EXOCRATE_VERSION_SLUG"),
 };
 

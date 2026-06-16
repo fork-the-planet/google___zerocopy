@@ -260,7 +260,7 @@ fn get_toolchain_install_dir() -> PathBuf {
     TOOLCHAIN_INSTALL_DIR
         .get_or_init(|| {
             let dir = get_toolchain_base_dir()
-                .join(".anneal")
+                .join("anneal")
                 .join("toolchain")
                 .join(env!("ANNEAL_EXOCRATE_VERSION_SLUG"));
             if !dir.exists() {

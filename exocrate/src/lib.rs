@@ -156,9 +156,9 @@ pub struct Config {
     /// sequence of path components for cross-platform compatibility.
     ///
     /// Dependencies are stored in `<rel_dir_path>`. In production use, this is
-    /// relative to `~`. In development, this is relative to Cargo's `target`
-    /// directory if it can be resolved, and otherwise relative to the current
-    /// working directory.
+    /// relative to the user cache directory. In development, this is relative
+    /// to Cargo's `target` directory if it can be resolved, and otherwise relative
+    /// relative to the current working directory.
     //
     // FIXME(#3408): Make this non-`pub` and validate at construction that each
     // item is valid for the OS.
@@ -169,7 +169,7 @@ pub struct Config {
 
 /// The location to install dependencies.
 pub enum Location {
-    /// A location in the user's home directory.
+    /// A location in the user's cache directory.
     UserGlobal,
     /// A location in the Cargo `target` directory if it can be resolved, and
     /// otherwise in the current working directory.
@@ -189,7 +189,7 @@ pub enum Source {
 impl Config {
     /// Resolves the dependency directory, failing if it doesn't exist.
     pub fn resolve_installation_dir(&self, location: Location) -> IoResult<PathBuf> {
-        let dir_path = self.dir_path(location);
+        let dir_path = self.dir_path(location)?;
         let _ = ManagedDirName::new(&dir_path).check_exists()?;
         Ok(dir_path)
     }
@@ -200,7 +200,7 @@ impl Config {
         location: Location,
         source: Source,
     ) -> IoResult<PathBuf> {
-        let dir_path = self.dir_path(location);
+        let dir_path = self.dir_path(location)?;
         if ManagedDirName::new(&dir_path).check_exists().is_ok() {
             return Ok(dir_path);
         }
@@ -242,13 +242,16 @@ impl Config {
     }
 
     /// Calculates the directory path:
-    /// - The parent is `~` for `UserGlobal`, `CARGO_MANIFEST_DIR/target` for
+    /// - The parent is the user cache directory for `UserGlobal`,
+    ///   `CARGO_MANIFEST_DIR/target` for
     ///   `Local` (or `./target` if `CARGO_MANIFEST_DIR` is not set), and the
     ///   supplied path for `Custom`.
     /// - The remainder is `{self.rel_dir_path}/{self.version_slug}`.
-    fn dir_path(&self, location: Location) -> PathBuf {
+    fn dir_path(&self, location: Location) -> IoResult<PathBuf> {
         let mut parts = match location {
-            Location::UserGlobal => dirs::home_dir().expect("home dir not found"),
+            Location::UserGlobal => dirs::cache_dir().ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::NotFound, "cache dir not found")
+            })?,
             Location::LocalDev => {
                 std::env::var("CARGO_MANIFEST_DIR")
                     .map(PathBuf::from)
@@ -262,7 +265,7 @@ impl Config {
         };
 
         parts.extend(self.rel_dir_path);
-        parts.join(self.version_slug)
+        Ok(parts.join(self.version_slug))
     }
 }
 
@@ -721,11 +724,11 @@ mod tests {
     #[test]
     fn test_config_dir_path() {
         let config = dummy_config(&["test_dir_path"]);
-        let prod_path = config.dir_path(Location::UserGlobal);
-        assert!(prod_path.starts_with(dirs::home_dir().unwrap()));
+        let prod_path = config.dir_path(Location::UserGlobal).unwrap();
+        assert!(prod_path.starts_with(dirs::cache_dir().unwrap()));
         assert!(prod_path.ends_with(PathBuf::from_iter(["test_dir_path", "slug"])));
 
-        let dev_path = config.dir_path(Location::LocalDev);
+        let dev_path = config.dir_path(Location::LocalDev).unwrap();
         assert!(
             dev_path.starts_with(
                 std::env::var("CARGO_MANIFEST_DIR")
@@ -742,7 +745,7 @@ mod tests {
         let config = dummy_config(&["test_dir_resolve"]);
         assert!(config.resolve_installation_dir(Location::LocalDev).is_err());
 
-        let dev_path = config.dir_path(Location::LocalDev);
+        let dev_path = config.dir_path(Location::LocalDev).unwrap();
         fs::create_dir_all(&dev_path).unwrap();
 
         let resolved = config.resolve_installation_dir(Location::LocalDev).unwrap();
@@ -760,7 +763,7 @@ mod tests {
 
         let config = Config { rel_dir_path: &["test_dir_install"], version_slug: "slug" };
 
-        let dev_path = config.dir_path(Location::LocalDev);
+        let dev_path = config.dir_path(Location::LocalDev).unwrap();
         let _ = fs::remove_dir_all(&dev_path);
 
         let resolved = config
